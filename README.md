@@ -1,1 +1,1 @@
-# DebeziumFlinkHudiSync
+# Debezium Flink Hudi Sync
