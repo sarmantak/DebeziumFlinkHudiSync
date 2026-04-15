@@ -14,6 +14,7 @@ services:
     image: lensesio/fast-data-dev:3.9.0
     hostname: kafka
     environment:
+      TZ: America/Los_Angeles
       ADV_HOST: kafka
       RUNNING_SAMPLEDATA: 1
       RUNTESTS: 0
@@ -25,6 +26,7 @@ services:
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: >
         DOCKERCOMPOSE:PLAINTEXT,CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,
         SSL:SSL,SASL_PLAINTEXT:SASL_PLAINTEXT,SASL_SSL:SASL_SSL
+      KAFKA_NUM_PARTITIONS: 5
       # Makes things a little lighter
       DISABLE: debezium-mongodb,debezium-postgres,debezium-sqlserver,debezium-jdbc
     # These are the ports for Kafka and Schema Registry. You can disable them if

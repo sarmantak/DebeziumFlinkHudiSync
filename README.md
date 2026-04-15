@@ -93,5 +93,16 @@ docker-compose exec kafka curl -s http://kafka:8083/connector-plugins | jq . | g
 
 
 cat ./debezium/mysql-inventory-customers.json | docker-compose exec -T kafka curl -i -X POST -H "Content-Type:application/json" http://localhost:8083/connectors -d @-
+cat ./debezium/mysql-inventory-orders.json | docker-compose exec -T kafka curl -i -X POST -H "Content-Type:application/json" http://localhost:8083/connectors -d @-
 
+docker exec debeziumflinkhudisync_kafka_1 tail -200 /var/log/connect-distributed.log
+docker exec debeziumflinkhudisync_kafka_1 tail -f /var/log/connect-distributed.log
+
+```
+
+### start jupyterlab
+
+```bash
+cd ~/jupyterlab_project && source venv/bin/activate
+jupyter lab --ip=0.0.0.0
 ```
