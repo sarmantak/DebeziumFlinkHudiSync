@@ -13,20 +13,25 @@ services:
   kafka:
     image: lensesio/fast-data-dev:3.9.0
     hostname: kafka
+    container_name: kafka
+    depends_on:
+      - mysql
     environment:
       TZ: America/Los_Angeles
       ADV_HOST: kafka
-      RUNNING_SAMPLEDATA: 1
+      RUNNING_SAMPLEDATA: 0
       RUNTESTS: 0
+      # Disable data generators
+      SAMPLEDATA: 0
       # The next three variables are required if you want to have Kafka
       # available at the host for local development. They are tailored to KRaft
       # fast-data-dev (3.9.x or later). The broker will be available at localhost:9092.
       KAFKA_LISTENERS: PLAINTEXT://:9092,DOCKERCOMPOSE://:19092,CONTROLLER://:16062
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,DOCKERCOMPOSE://kafka:19092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: >
-        DOCKERCOMPOSE:PLAINTEXT,CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,
+        DOCKERCOMPOSE:PLAINTEXT,CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT, 
         SSL:SSL,SASL_PLAINTEXT:SASL_PLAINTEXT,SASL_SSL:SASL_SSL
-      KAFKA_NUM_PARTITIONS: 5
+      # KAFKA_NUM_PARTITIONS: 5
       # Makes things a little lighter
       DISABLE: debezium-mongodb,debezium-postgres,debezium-sqlserver,debezium-jdbc
     # These are the ports for Kafka and Schema Registry. You can disable them if
@@ -44,7 +49,7 @@ services:
     image: provectuslabs/kafka-ui:latest
     container_name: kafka-ui
     ports:
-      - "8080:8080"
+      - "8085:8080"
     environment:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:19092
@@ -54,3 +59,112 @@ services:
     depends_on:
       - kafka
     restart: always
+
+  trino-coordinator:
+    image: 'trinodb/trino:latest'
+    hostname: trino-coordinator
+    container_name: trino-coordinator
+    ports:
+      - '8080:8080'
+    volumes:
+      - ./trino/etc:/etc/trino
+
+  metastore_db:
+    image: postgres:11
+    hostname: metastore_db
+    container_name: metastore_db
+    ports:
+      - 5432:5432
+    environment:
+      POSTGRES_USER: hive
+      POSTGRES_PASSWORD: hive
+      POSTGRES_DB: metastore
+    command: [ "postgres", "-c", "wal_level=logical" ]
+    healthcheck:
+      test: [ "CMD", "psql", "-U", "hive", "-c", "SELECT 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ./postgresscripts:/docker-entrypoint-initdb.d
+
+  hive-metastore:
+    hostname: hive-metastore
+    container_name: hive-metastore
+    image: 'starburstdata/hive:3.1.2-e.18'
+    ports:
+      - '9083:9083' # Metastore Thrift
+    environment:
+      HIVE_METASTORE_DRIVER: org.postgresql.Driver
+      HIVE_METASTORE_JDBC_URL: jdbc:postgresql://metastore_db:5432/metastore
+      HIVE_METASTORE_USER: hive
+      HIVE_METASTORE_PASSWORD: hive
+      HIVE_METASTORE_WAREHOUSE_DIR: s3://datalake/
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: admin
+      S3_SECRET_KEY: password
+      S3_PATH_STYLE_ACCESS: "true"
+      REGION: ""
+      GOOGLE_CLOUD_KEY_FILE_PATH: ""
+      AZURE_ADL_CLIENT_ID: ""
+      AZURE_ADL_CREDENTIAL: ""
+      AZURE_ADL_REFRESH_URL: ""
+      AZURE_ABFS_STORAGE_ACCOUNT: ""
+      AZURE_ABFS_ACCESS_KEY: ""
+      AZURE_WASB_STORAGE_ACCOUNT: ""
+      AZURE_ABFS_OAUTH: ""
+      AZURE_ABFS_OAUTH_TOKEN_PROVIDER: ""
+      AZURE_ABFS_OAUTH_CLIENT_ID: ""
+      AZURE_ABFS_OAUTH_SECRET: ""
+      AZURE_ABFS_OAUTH_ENDPOINT: ""
+      AZURE_WASB_ACCESS_KEY: ""
+      HIVE_METASTORE_USERS_IN_ADMIN_ROLE: "admin"
+    depends_on:
+      - metastore_db
+    healthcheck:
+      test: bash -c "exec 6<> /dev/tcp/localhost/9083"
+
+  minio:
+    image: minio/minio
+    container_name: minio
+    environment:
+      - MINIO_ROOT_USER=admin
+      - MINIO_ROOT_PASSWORD=password
+      - MINIO_DOMAIN=minio
+    ports:
+      - 9001:9001
+      - 9000:9000
+    command: [ "server", "/data", "--console-address", ":9001" ]
+
+  mc:
+    depends_on:
+      - minio
+    image: minio/mc
+    container_name: mc
+    environment:
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password
+      - AWS_REGION=us-east-1
+    entrypoint: >
+      /bin/sh -c "
+      until (/usr/bin/mc alias set myminio http://minio:9000 admin password) do echo '...waiting...' && sleep 1; done;
+      /usr/bin/mc mb --ignore-existing myminio/warehouse;
+      /usr/bin/mc anonymous set public myminio/warehouse;
+      echo 'Bucket warehouse is ready!';"
+
+  # cloudbeaver:
+  #   image: dbeaver/cloudbeaver:latest
+  #   container_name: cloudbeaver
+  #   ports:
+  #     - "8978:8978"
+  #   volumes:
+  #     - ./cloudbeaver:/opt/cloudbeaver/workspace
+
+# volumes:
+#   hive-metastore-postgresql:
+
+networks:
+  # This replaces the default network for every service in this file
+  default:
+    name: lakehouse
+    driver: bridge

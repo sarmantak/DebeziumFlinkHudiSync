@@ -1,0 +1,38 @@
+services:
+  spark-hudi:
+    image: apache/spark:3.5.0
+    container_name: spark-hudi
+    networks:
+      - lakehouse
+    volumes:
+      - ./hudi-jars:/opt/hudi-jars:ro
+      - ./spark-conf/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro
+      - ./spark-conf/processed_orders.properties:/opt/hudi-conf/processed_orders.properties:ro
+    environment:
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password
+      - SPARK_SUBMIT_OPTS=-Divy.home=/tmp/.ivy2
+    command: >
+      /opt/spark/bin/spark-submit
+      --master local[*] 
+      --driver-memory 2g 
+      --packages org.apache.hudi:hudi-spark3.5-bundle_2.12:0.15.0,org.apache.hadoop:hadoop-aws:3.3.4
+      --class org.apache.hudi.utilities.streamer.HoodieStreamer 
+      /opt/hudi-jars/hudi-utilities-slim-bundle_2.12-0.15.0.jar 
+      --props /opt/hudi-conf/processed_orders.properties
+      --target-base-path s3a://warehouse/processed_orders 
+      --target-table processed_orders 
+      --table-type COPY_ON_WRITE
+      --op UPSERT
+      --continuous 
+      --min-sync-interval-seconds 60
+      --source-class org.apache.hudi.utilities.sources.AvroKafkaSource
+      --schemaprovider-class org.apache.hudi.utilities.schema.SchemaRegistryProvider
+      --source-ordering-field order_number
+      --enable-sync
+      --sync-tool-classes org.apache.hudi.hive.HiveSyncTool
+
+
+networks:
+  lakehouse:
+    external: true
